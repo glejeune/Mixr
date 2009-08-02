@@ -1,0 +1,78 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'fileutils'
+require 'socket'
+
+## Hum... Windows is a strange OS !
+if /Windows/.match( ENV['OS'] )
+  HOME = ENV['USERPROFILE']
+  CMD_SEPARATOR = "&"
+  CD = "cd /D"
+  IS_WIN32 = true
+else
+  HOME = ENV['HOME']
+  CMD_SEPARATOR = ";"
+  CD = "cd"
+  IS_WIN32 = false
+end
+
+class MixrServer
+  def initialize
+    # Get local hostname
+    @hostname = Socket.gethostname.gsub( /\..*$/, "" )
+
+    # Server Directory
+    @server_directory = File.expand_path(File.join(File.dirname(__FILE__), "..", "mixr_server"))
+
+    # mixr server options
+    @options = { :mixr_directory => File.expand_path(File.join( HOME, ".mixr" )), :config_file => :default_or_none}
+    
+    # Make ~/.mixr or mixr_directory if it doesn't exist
+    unless FileTest.directory?( @options[:mixr_directory] )
+      FileUtils.mkdir_p( @options[:mixr_directory] )
+    end
+  end
+  
+  def run( daemonize )
+    detached = "-detached" if daemonize and not IS_WIN32
+	  # Compile erlang
+    compile_command = "erlc -o \"#{@options[:mixr_directory]}\" \"#{File.join(@server_directory, 'mixr.erl')}\""
+    compile_command.gsub!( /\//, "\\" ) if IS_WIN32
+    # Startup directory
+    startup_directory = "\"#{@options[:mixr_directory]}\""
+    startup_directory.gsub!( /\//, "\\" ) if IS_WIN32
+    # Startup command
+    # startup_command = "erl -mnesia dir '\"Mixr.database\"' -name #{@hostname} #{detached} -noshell -boot start_sasl -config mixr_elog -s mixr start -s init stop"
+    startup_command = "erl -mnesia dir '\"Mixr.database\"' -name #{@hostname} #{detached} -noshell -s mixr start -s init stop"
+    startup_command.gsub!( /\//, "\\" ) if IS_WIN32
+
+    # Execute compile command
+    `#{compile_command}`
+    
+#     error_logger = "%% rotating log and minimal tty 
+# [{sasl, [ 
+#     {sasl_error_logger, false}, 
+#     %% define the parameters of the rotating log 
+#     %% the log file directory 
+#     {error_logger_mf_dir,\"#{@options[:mixr_directory]}\"}, 
+#     %% # bytes per logfile 
+#     {error_logger_mf_maxbytes,10485760}, % 10 MB 
+#     %% maximum number of logfiles 
+#     {error_logger_mf_maxfiles, 10} 
+#     ]}]."
+#     File.open( File.join(@options[:mixr_directory], 'mixr_elog.config'), "w" ) { |f|
+#       f << error_logger
+#     }
+    
+    # Start server
+    start_server = "#{CD} #{startup_directory} #{CMD_SEPARATOR} #{startup_command}"
+    puts "Start Mixr server"
+    `#{start_server}`
+  end
+end
+
+if ARGV[0] == "-d"
+  MixrServer.new.run( true )
+else
+  MixrServer.new.run( false )
+end
